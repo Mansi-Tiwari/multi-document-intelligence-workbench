@@ -38,6 +38,7 @@ export type CreateAnalysisResponse = z.infer<typeof CreateAnalysisResponseSchema
 
 /** Example instructions shown as chips under the prompt box. */
 export const EXAMPLE_INSTRUCTIONS = [
+  "Compare name, email, date of birth, licence number and monthly income",
   "Compare total amount, due date and payment terms",
   "Find dates, money amounts, emails and licence numbers",
   "Which document is the most recent contract, and what are its parties?",

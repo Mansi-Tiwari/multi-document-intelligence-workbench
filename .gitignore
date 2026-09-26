@@ -9,3 +9,8 @@ build/
 *.db
 .DS_Store
 coverage/
+*.sqlite-wal
+*.sqlite-shm
+*.db-wal
+*.db-shm
+apps/server/data/

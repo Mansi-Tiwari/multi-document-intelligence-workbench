@@ -1,84 +1,84 @@
-import { useEffect, useState } from "react";
-import { getHealth } from "./api/health";
-
-type HealthState =
-  | { kind: "checking" }
-  | { kind: "online" }
-  | { kind: "unreachable"; message: string };
-
-function describeError(error: unknown): string {
-  if (error instanceof Error && error.message !== "") return error.message;
-  return "Unknown error.";
-}
-
-function StatusIndicator({ state, onRetry }: { state: HealthState; onRetry: () => void }) {
-  switch (state.kind) {
-    case "checking":
-      return (
-        <p className="status status--checking" role="status">
-          <span className="status__dot" aria-hidden="true" />
-          Checking API…
-        </p>
-      );
-    case "online":
-      return (
-        <p className="status status--online" role="status">
-          <span className="status__dot" aria-hidden="true" />
-          API online
-        </p>
-      );
-    case "unreachable":
-      return (
-        <div className="status status--unreachable" role="alert">
-          <span className="status__dot" aria-hidden="true" />
-          <span>
-            API unreachable: <span className="status__message">{state.message}</span>
-          </span>
-          <button type="button" className="button" onClick={onRetry}>
-            Retry
-          </button>
-        </div>
-      );
-  }
-}
+import { useRef, useState } from "react";
+import type { UploadDocumentsResponse } from "@mdiw/shared";
+import { ErrorBanner } from "./components/ErrorBanner";
+import { HealthBadge } from "./components/HealthBadge";
+import { AnalysisPanel } from "./features/analysis/AnalysisPanel";
+import { UploadPanel } from "./features/upload/UploadPanel";
+import type { UploadedEntry } from "./features/upload/uploadedFiles";
+import { addBatch, entriesFromResponse, selectableDocuments, selectedDocuments, toggleId } from "./features/upload/uploadedFiles";
+import { useHealth } from "./hooks/useHealth";
 
 export function App() {
-  const [health, setHealth] = useState<HealthState>(() => ({ kind: "checking" }));
-  const [attempt, setAttempt] = useState(0);
+  const health = useHealth();
+  const [healthBannerDismissed, setHealthBannerDismissed] = useState(false);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    getHealth(controller.signal).then(
-      () => {
-        setHealth({ kind: "online" });
-      },
-      (error: unknown) => {
-        if (controller.signal.aborted) return;
-        setHealth({ kind: "unreachable", message: describeError(error) });
-      },
-    );
-    return () => {
-      controller.abort();
-    };
-  }, [attempt]);
+  // Uploaded files live in memory until `GET /api/documents` is wired up.
+  const [entries, setEntries] = useState<UploadedEntry[]>([]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const batchCounter = useRef(0);
 
-  const retry = () => {
-    setHealth({ kind: "checking" });
-    setAttempt((n) => n + 1);
+  const selectable = selectableDocuments(entries);
+  const selected = selectedDocuments(entries, selectedIds);
+
+  const handleUploaded = (response: UploadDocumentsResponse) => {
+    batchCounter.current += 1;
+    const batch = entriesFromResponse(response, batchCounter.current);
+    setEntries((current) => addBatch(current, batch));
+  };
+
+  const toggle = (documentId: string) => {
+    setSelectedIds((current) => toggleId(current, documentId));
+  };
+
+  const retryHealth = () => {
+    setHealthBannerDismissed(false);
+    health.retry();
   };
 
   return (
     <div className="app">
       <header className="app__header">
-        <div>
+        <div className="app__brand">
           <h1 className="app__title">Multi-Document Intelligence Workbench</h1>
           <p className="app__tagline">
-            Upload documents, give one instruction, get structured per-document and cross-document
-            analysis.
+            Upload documents, give one instruction, get structured per-document and cross-document analysis.
           </p>
         </div>
-        <StatusIndicator state={health} onRetry={retry} />
+        <HealthBadge state={health.state} />
       </header>
+
+      {health.state.kind === "unreachable" && !healthBannerDismissed && (
+        <div className="app__banner">
+          <ErrorBanner
+            error={health.state.error}
+            title="API unreachable"
+            action={{ label: "Retry", onClick: retryHealth }}
+            onDismiss={() => {
+              setHealthBannerDismissed(true);
+            }}
+          />
+        </div>
+      )}
+
+      <main className="app__main">
+        <UploadPanel
+          entries={entries}
+          selectedIds={selected.map((d) => d.id)}
+          selectableCount={selectable.length}
+          onUploaded={handleUploaded}
+          onToggle={toggle}
+          onSelectAll={() => {
+            setSelectedIds((current) => [
+              ...current,
+              ...selectable.map((d) => d.id).filter((id) => !current.includes(id)),
+            ]);
+          }}
+          onClearSelection={() => {
+            setSelectedIds([]);
+          }}
+        />
+        <AnalysisPanel selected={selected} onDeselect={toggle} />
+      </main>
     </div>
   );
 }
