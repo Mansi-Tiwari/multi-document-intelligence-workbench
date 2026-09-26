@@ -10,6 +10,9 @@ describe("loadEnv", () => {
       LLM_PROVIDER: "mock",
       LLM_MODEL: "claude-opus-5",
       ANALYSIS_CONCURRENCY: 3,
+      CORS_ORIGINS: ["http://localhost:5173"],
+      RATE_LIMIT_WINDOW_MS: 60_000,
+      RATE_LIMIT_MAX: 120,
     });
   });
 
@@ -46,5 +49,35 @@ describe("loadEnv", () => {
     const env = loadEnv({ FOO: "bar", PATH: "/usr/bin" });
     expect(env).not.toHaveProperty("FOO");
     expect(env).not.toHaveProperty("PATH");
+  });
+
+  it("parses a comma-separated CORS_ORIGINS list, trimming blanks", () => {
+    const env = loadEnv({ CORS_ORIGINS: " http://localhost:5173 , https://app.example.com:8443,," });
+    expect(env.CORS_ORIGINS).toEqual(["http://localhost:5173", "https://app.example.com:8443"]);
+  });
+
+  it.each([
+    "localhost:5173",
+    "http://localhost:5173/",
+    "https://example.com/app",
+    "ftp://example.com",
+    "not a url",
+    ",",
+  ])("rejects invalid CORS_ORIGINS %s", (value) => {
+    expect(() => loadEnv({ CORS_ORIGINS: value })).toThrow(/CORS_ORIGINS/);
+  });
+
+  it("coerces rate limit settings", () => {
+    const env = loadEnv({ RATE_LIMIT_WINDOW_MS: "1000", RATE_LIMIT_MAX: "100000" });
+    expect(env.RATE_LIMIT_WINDOW_MS).toBe(1000);
+    expect(env.RATE_LIMIT_MAX).toBe(100_000);
+  });
+
+  it.each(["999", "3600001", "1.5", "x"])("rejects invalid RATE_LIMIT_WINDOW_MS %s", (value) => {
+    expect(() => loadEnv({ RATE_LIMIT_WINDOW_MS: value })).toThrow(/RATE_LIMIT_WINDOW_MS/);
+  });
+
+  it.each(["0", "100001", "2.5", "x"])("rejects invalid RATE_LIMIT_MAX %s", (value) => {
+    expect(() => loadEnv({ RATE_LIMIT_MAX: value })).toThrow(/RATE_LIMIT_MAX/);
   });
 });

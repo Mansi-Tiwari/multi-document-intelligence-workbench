@@ -23,7 +23,10 @@ function readEnv(): Env {
 }
 
 const env = readEnv();
-const app = createApp();
+const app = createApp({
+  cors: { origins: env.CORS_ORIGINS },
+  rateLimit: { windowMs: env.RATE_LIMIT_WINDOW_MS, max: env.RATE_LIMIT_MAX },
+});
 
 const server = app.listen(env.PORT, (error?: Error) => {
   if (error) {

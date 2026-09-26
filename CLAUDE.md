@@ -133,7 +133,14 @@ Both implement the same `DocumentAnalyzer` port. Services never know which one i
 | GET | `/api/analyses` | — | `{ analyses: AnalysisSummary[] }` |
 | GET | `/api/analyses/:id` | `id` uuid | `Analysis` |
 
-Errors always have the shape `{ error: { code, message, issues? } }` (see `ApiErrorSchema`). Codes: `VALIDATION_ERROR` 400, `UNSUPPORTED_FILE` 415, `FILE_TOO_LARGE` 413, `EXTRACTION_FAILED` 422, `NOT_FOUND` 404, `LLM_ERROR` 502, `INTERNAL_ERROR` 500. Stack traces are never sent to clients.
+Errors always have the shape `{ error: { code, message, issues?, requestId? } }` (see `ApiErrorSchema`). They are raised as `AppError` subclasses (`domain/errors.ts`), and each code's HTTP status comes from a single `ERROR_STATUS` table. Codes: `VALIDATION_ERROR` 400, `NOT_FOUND` 404, `FILE_TOO_LARGE` 413, `UNSUPPORTED_FILE` 415, `EXTRACTION_FAILED` 422, `RATE_LIMITED` 429, `INTERNAL_ERROR` 500, `LLM_ERROR` 502. `http/errorHandler.ts` is the **only** place errors become responses. Stack traces are never sent to clients. `AppError` messages are sent as written, so put internal details in `cause`, which is only logged.
+
+### Middleware (in order)
+`requestId` → `helmet` → `cors` → rate limit (`/api`, health excluded) → `express.json({ limit: "100kb" })` → routes → 404 → error handler.
+- **Request IDs:** an incoming `X-Request-Id` is kept if it matches `^[A-Za-z0-9._-]{1,128}$`; otherwise a UUID is generated. The ID is echoed in the response header, included in every error body and in logs, and read with `getRequestId(res)`.
+- **CORS:** a fixed allow-list from `CORS_ORIGINS`. Disallowed origins get no CORS headers.
+- **Rate limit:** `RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MAX`. Exceeding it returns 429 `RATE_LIMITED` through the error handler.
+- `createApp(options)` takes its config as arguments and never reads env; `index.ts` passes the validated env.
 
 ### Upload limits (in `packages/shared`, used by server and web)
 - Up to 10 files per request, 10 MB each. At most 10 documents per analysis.

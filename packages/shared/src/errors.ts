@@ -6,6 +6,7 @@ export const ErrorCodeSchema = z.enum([
   "FILE_TOO_LARGE",
   "EXTRACTION_FAILED",
   "NOT_FOUND",
+  "RATE_LIMITED",
   "LLM_ERROR",
   "INTERNAL_ERROR",
 ]);
@@ -22,6 +23,8 @@ export const ApiErrorSchema = z.object({
     code: ErrorCodeSchema,
     message: z.string(),
     issues: z.array(ApiErrorIssueSchema).optional(),
+    /** Correlates the response with server logs (also sent as the `X-Request-Id` header). */
+    requestId: z.string().optional(),
   }),
 });
 export type ApiError = z.infer<typeof ApiErrorSchema>;

@@ -1,12 +1,30 @@
 import express from "express";
 import type { Express } from "express";
+import helmet from "helmet";
 import { errorHandler, notFoundHandler } from "./http/errorHandler";
+import { requestIdMiddleware } from "./http/requestId";
+import { corsMiddleware, rateLimitMiddleware } from "./http/security";
+import type { CorsOptions, RateLimitOptions } from "./http/security";
 import { healthRouter } from "./routes/health.routes";
 
-/** Builds the Express app. Pure: no env access, dependencies will be passed as parameters. */
-export function createApp(): Express {
+export type AppOptions = {
+  cors: CorsOptions;
+  /** `false` disables rate limiting (e.g. in tests). */
+  rateLimit: Omit<RateLimitOptions, "skipPaths"> | false;
+};
+
+/** Builds the Express app. Pure: no env access; configuration comes in through `options`. */
+export function createApp(options: AppOptions): Express {
   const app = express();
   app.disable("x-powered-by");
+
+  app.use(requestIdMiddleware);
+  app.use(helmet());
+  app.use(corsMiddleware(options.cors));
+  if (options.rateLimit !== false) {
+    // The health check is excluded so monitoring never gets throttled.
+    app.use("/api", rateLimitMiddleware({ ...options.rateLimit, skipPaths: ["/health"] }));
+  }
   app.use(express.json({ limit: "100kb" }));
 
   app.use("/api/health", healthRouter());
