@@ -1,4 +1,5 @@
-import type { Analysis, Finding } from "@mdiw/shared";
+import { joinList } from "@mdiw/shared";
+import type { Analysis, AnalysisOverview, Finding } from "@mdiw/shared";
 import type { DocumentFacts, FilenameOf } from "./findings";
 import { basisOf, comparisonStatus, sourceFor } from "./findings";
 
@@ -25,11 +26,37 @@ export function factsToText(groups: readonly DocumentFacts[], filenameOf: Filena
     .join("\n\n");
 }
 
-export function summaryToText(analysis: Analysis, keyDocument: Finding | null, filenameOf: FilenameOf): string {
-  const parts: string[] = [`Instruction: ${analysis.instruction}`];
-  if (keyDocument !== null) parts.push(findingToText(keyDocument, filenameOf));
-  for (const doc of analysis.documents) {
-    parts.push(`${doc.filename} (relevance ${Math.round(doc.relevance * 100)}%)\n${doc.summary}`);
+/** The Summary tab as plain text, in the same order as on screen. */
+export function overviewToText(instruction: string, overview: AnalysisOverview): string {
+  const single = overview.documents.length === 1;
+  const parts: string[] = [`Instruction: ${instruction}`, `At a glance: ${overview.headline}`];
+  if (overview.differences.length > 0) {
+    parts.push(
+      ["Differences:", ...overview.differences.map((d) => `- ${d.label}: ${d.values.map((v) => `${v.value} (${v.filename})`).join(" vs ")}`)].join("\n"),
+    );
+  }
+  if (overview.missing.length > 0) {
+    parts.push(["Missing:", ...overview.missing.map((m) => `- ${m.label}: not in ${joinList(m.missingFrom)}`)].join("\n"));
+  }
+  if (overview.matches.length > 0) {
+    parts.push(
+      [
+        single ? "Found:" : "Agree:",
+        ...overview.matches.map((m) => `- ${m.label}: ${m.value}${single ? "" : ` (${m.foundIn} of ${overview.documents.length} documents)`}`),
+      ].join("\n"),
+    );
+  }
+  if (overview.notFoundAnywhere.length > 0) {
+    parts.push(`${single ? "Not in the document" : "Not in any document"}: ${joinList(overview.notFoundAnywhere.map((n) => n.label))}`);
+  }
+  if (overview.keyDocument !== null && !single) {
+    parts.push(`Key document [AI]: ${overview.keyDocument.filename} (${overview.keyDocument.reason})`);
+  }
+  for (const doc of overview.documents) {
+    parts.push(`${doc.filename} (${doc.relevanceLevel} relevance, ${doc.pointsFound} of ${doc.pointsTotal} points found)\n${doc.summary}`);
+  }
+  if (overview.skipped.length > 0) {
+    parts.push(["Skipped:", ...overview.skipped.map((s) => `- ${s.name}: ${s.message}`)].join("\n"));
   }
   return parts.join("\n\n");
 }

@@ -4,8 +4,24 @@ import {
   type DocumentAnalysisOutput,
   type PlannedField,
 } from "../../domain/llm";
+import { joinList } from "@mdiw/shared";
 import { extractEntities, type EntityType, type ExtractedEntity } from "../../domain/regexEntities";
 import type { AnalyzeDocumentInput, LlmDocument, LlmProvider, PlanFieldsInput } from "../../ports/LlmProvider";
+import {
+  cellQuote,
+  columnForKey,
+  compareWithOthers,
+  describeProfile,
+  detectSubject,
+  findSubjectRows,
+  formatNumber,
+  parseNumber,
+  parseRenderedTable,
+  periodDivisor,
+  profileColumn,
+  subjectName,
+  type ParsedTable,
+} from "./mockTable";
 import { generateValidated } from "./withValidationRetry";
 
 /**
@@ -16,7 +32,7 @@ import { generateValidated } from "./withValidationRetry";
 
 const MAX_MOCK_FIELDS = 8;
 const MAX_KEY_FACTS = 5;
-const MAX_SUMMARY_CHARS = 300;
+const MAX_SUMMARY_CHARS = 600;
 
 const LEADING_VERBS = new Set([
   "compare", "extract", "find", "list", "check", "identify", "get", "show", "summarize", "summarise",
@@ -29,11 +45,11 @@ const STOP_WORDS = new Set([
 ]);
 
 export const GENERIC_FIELDS: readonly PlannedField[] = [
-  { key: "date", description: "The main date stated in the document." },
-  { key: "total_amount", description: "The total amount of money stated in the document." },
-  { key: "email", description: "The contact email address in the document." },
-  { key: "licence_number", description: "The licence number stated in the document." },
-  { key: "parties", description: "The people or organisations the document is between." },
+  { key: "date", description: "Date" },
+  { key: "total_amount", description: "Total amount" },
+  { key: "email", description: "Email" },
+  { key: "licence_number", description: "Licence number" },
+  { key: "parties", description: "Parties" },
 ];
 
 /** Lowercase snake_case, starting with a letter, at most 64 characters. */
@@ -55,17 +71,32 @@ function phraseWords(phrase: string): string[] {
 }
 
 export function planMockFields(instruction: string): PlannedField[] {
-  const phrases = instruction.split(/[,;&]|\band\b|\n/iu);
+  // "… of riya with other employees" names a subject, not a field.
+  const phrases = detectSubject(instruction).fieldsPart.split(/[,;&]|\band\b|\n/iu);
   const fields: PlannedField[] = [];
   for (const phrase of phrases) {
     const words = phraseWords(phrase);
     if (words.length === 0 || words.length > 6) continue;
     const key = slugify(words.join(" "));
     if (key === "" || fields.some((field) => field.key === key)) continue;
-    fields.push({ key, description: `The ${words.join(" ")} as stated in the document.` });
+    fields.push({ key, description: labelFromPhrase(phrase) });
     if (fields.length === MAX_MOCK_FIELDS) break;
   }
   return fields.length > 0 ? fields : [...GENERIC_FIELDS];
+}
+
+/** The phrase as the user wrote it, minus leading verbs: " date of birth" → "Date of birth". */
+function labelFromPhrase(phrase: string): string {
+  const words = phrase.trim().split(/\s+/u).filter((word) => word !== "");
+  let start = 0;
+  const skip = (word: string) => LEADING_VERBS.has(word) || word === "the" || word === "a" || word === "an";
+  while (start < words.length && skip((words[start] ?? "").toLowerCase())) start++;
+  const label = words.slice(start).join(" ").replace(/[?.!:]+$/u, "");
+  return capitalize(label).slice(0, 300);
+}
+
+function capitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 type FieldMatch = { value: string; quote: string };
@@ -129,13 +160,51 @@ function matchEntity(key: string, text: string, entities: readonly ExtractedEnti
   return { value: entity.normalized ?? entity.text, quote: entity.text };
 }
 
-function summarize(text: string): string {
-  const flat = text.replace(/\s+/gu, " ").trim();
-  const sentences = flat.match(/[^.!?]+[.!?]+/gu) ?? [];
-  const firstTwo = sentences.slice(0, 2).join("").trim();
-  const summary = firstTwo === "" ? flat : firstTwo;
-  if (summary === "") return "The document has no readable text.";
-  return summary.length <= MAX_SUMMARY_CHARS ? summary : `${summary.slice(0, MAX_SUMMARY_CHARS - 1).trimEnd()}…`;
+const KIND_LABEL: Record<LlmDocument["kind"], string> = { pdf: "PDF", text: "text file", csv: "CSV table" };
+
+/** What the document is: its title line (sentence-cased) or, for CSV, its shape. */
+function describeDocument(document: LlmDocument, lines: readonly string[]): string {
+  if (document.kind === "csv") {
+    const rows = lines.filter((line) => line.startsWith("Row ")).length;
+    const columns = lines.find((line) => line.startsWith("Columns: "))?.slice("Columns: ".length) ?? "";
+    return `A table with ${rows} ${rows === 1 ? "row" : "rows"}${columns === "" ? "" : ` (columns: ${columns})`}`;
+  }
+  const first = (lines.map((line) => line.replace(/^#+\s*/u, "").trim()).find((line) => line !== "") ?? "").replace(/[.!]+$/u, "");
+  // Only a short heading-like first line counts as a title, not a sentence or a "Label: value" line.
+  if (first === "" || first.length > 60 || first.includes(":") || /[.!?]\s/u.test(first)) return `A ${KIND_LABEL[document.kind]}`;
+  const title = first === first.toUpperCase() ? capitalize(first.toLowerCase()) : first;
+  return `${title} (${KIND_LABEL[document.kind]})`;
+}
+
+/**
+ * Plain-language summary built from what was actually found:
+ * "Rental application form (text file). It states name Jane Doe and email …. It does not mention …"
+ */
+function summarize(
+  document: LlmDocument,
+  lines: readonly string[],
+  fields: readonly PlannedField[],
+  values: readonly (string | null)[],
+): string {
+  const lower = (label: string) => (label === label.toUpperCase() ? label : label.charAt(0).toLowerCase() + label.slice(1));
+  const found: string[] = [];
+  const missing: string[] = [];
+  fields.forEach((field, index) => {
+    const value = values[index] ?? null;
+    if (value === null) missing.push(lower(field.description));
+    else found.push(`${lower(field.description)} ${value}`);
+  });
+
+  const parts = [`${describeDocument(document, lines)}.`];
+  if (document.text.trim() === "") return "The document has no readable text.";
+  if (found.length > 0) parts.push(`It states ${joinList(found)}.`);
+  if (missing.length > 0) {
+    parts.push(found.length > 0 ? `It does not mention ${joinList(missing, "or")}.` : "It does not state any of the requested points.");
+  }
+  const summary = parts.join(" ");
+  if (summary.length <= MAX_SUMMARY_CHARS) return summary;
+  const cut = summary.slice(0, MAX_SUMMARY_CHARS - 1);
+  return `${cut.slice(0, cut.lastIndexOf(" ")).trimEnd()}…`;
 }
 
 function keyFacts(lines: readonly string[]): { fact: string; quote: string }[] {
@@ -158,21 +227,123 @@ function relevance(instruction: string, text: string): number {
   return Math.min(1, Math.max(0, Math.round((found / words.length) * 100) / 100));
 }
 
+const MAX_TABLE_FACTS = 8;
+const MAX_TABLE_SUMMARY_CHARS = 1500;
+
+/**
+ * A CSV table is analysed as a whole: requested fields map to columns. With a
+ * subject in the instruction ("of riya with other employees") the values come from
+ * that subject's row and key facts compare it with the other rows; without one,
+ * each field describes its whole column (never just the first row).
+ */
+function analyzeMockTable(
+  instruction: string,
+  fields: readonly PlannedField[],
+  document: LlmDocument,
+  table: ParsedTable,
+): unknown {
+  const { subject } = detectSubject(instruction);
+  const subjectRows = subject === null ? [] : findSubjectRows(table, subject);
+  const focus = subjectRows[0] ?? (subject === null && table.rows.length === 1 ? table.rows[0] : undefined);
+  const name = focus !== undefined && subject !== null ? subjectName(focus, subject) : null;
+
+  const matched = fields.map(({ key }) => {
+    const none = { key, value: null, quote: null };
+    const column = columnForKey(table, key);
+    if (column === null || (subject !== null && focus === undefined)) return none;
+
+    if (focus !== undefined) {
+      const raw = focus.cells.get(column) ?? "";
+      const quote = cellQuote(focus, column);
+      if (raw === "" || quote === null) return none;
+      const divisor = periodDivisor(key, column);
+      const n = parseNumber(raw);
+      const value =
+        divisor > 1 && n !== null ? `${formatNumber(n / divisor)} (derived: ${column} ${formatNumber(n)} ÷ ${divisor})` : raw;
+      return { key, value, quote };
+    }
+
+    const profile = profileColumn(table, column);
+    if (profile.kind === "empty") return none;
+    if (profile.kind === "constant") {
+      const row = table.rows.find((r) => cellQuote(r, column) !== null);
+      return { key, value: profile.value, quote: row === undefined ? null : cellQuote(row, column) };
+    }
+    // An aggregate across rows is our judgement, not a quote: no quote → labelled "AI".
+    return { key, value: `${column}: ${describeProfile(profile)}`, quote: null };
+  });
+
+  const lower = (label: string) => (label === label.toUpperCase() ? label : label.charAt(0).toLowerCase() + label.slice(1));
+  const found = fields.flatMap((f, i) => {
+    const value = matched[i]?.value ?? null;
+    return value === null ? [] : [`${lower(f.description)} ${value}`];
+  });
+  const missing = fields.filter((_, i) => matched[i]?.value === null).map((f) => lower(f.description));
+  const profiles = table.columns.map((column) => profileColumn(table, column));
+
+  const parts = [`A table of ${table.rows.length} ${table.rows.length === 1 ? "row" : "rows"} and ${table.columns.length} columns (${table.columns.join(", ")}).`];
+  const facts: { fact: string; quote: string | null }[] = [];
+
+  if (subject !== null && focus === undefined) {
+    parts.push(`${capitalize(subject)} does not appear in this table.`);
+  } else if (focus !== undefined && name !== null) {
+    parts.push(`${name} is row ${focus.index}${found.length > 0 ? `: ${joinList(found)}` : ""}.`);
+    // Numbers first (salary, rating), then dates, then categories: the most telling comparisons lead.
+    const order = { number: 0, date: 1, category: 2, constant: 3, unique: 4, empty: 5 };
+    const columns = [...table.columns].sort(
+      (a, b) => order[profileColumn(table, a).kind] - order[profileColumn(table, b).kind],
+    );
+    for (const column of columns) {
+      const sentence = compareWithOthers(table, focus, column, name);
+      if (sentence !== null && facts.length < MAX_TABLE_FACTS) facts.push({ fact: sentence, quote: focus.line });
+    }
+    const comparisons = facts.slice(0, 3).map((f) => f.fact);
+    if (comparisons.length > 0) parts.push(`Compared with the other ${table.rows.length - 1} rows: ${comparisons.join(" ")}`);
+  } else {
+    const described = profiles.filter((p) => p.kind !== "empty" && p.kind !== "unique");
+    for (const p of described) {
+      if (facts.length < MAX_TABLE_FACTS) facts.push({ fact: `${p.column}: ${describeProfile(p)}.`, quote: null });
+    }
+    if (described.length > 0) parts.push(described.slice(0, 5).map((p) => `${p.column}: ${describeProfile(p)}`).join("; ") + ".");
+  }
+
+  if (missing.length > 0 && !(subject !== null && focus === undefined)) {
+    parts.push(`The table has no column for ${joinList(missing, "or")}.`);
+  }
+
+  let summary = parts.join(" ");
+  if (summary.length > MAX_TABLE_SUMMARY_CHARS) {
+    const cut = summary.slice(0, MAX_TABLE_SUMMARY_CHARS - 1);
+    summary = `${cut.slice(0, cut.lastIndexOf(" ")).trimEnd()}…`;
+  }
+
+  return {
+    summary,
+    relevance: subject !== null ? (focus !== undefined ? 1 : 0.1) : relevance(instruction, document.text),
+    fields: matched,
+    keyFacts: facts,
+  };
+}
+
 /** Raw (unvalidated) mock analysis of ONE document. */
 export function analyzeMockDocument(
   instruction: string,
   fields: readonly PlannedField[],
   document: LlmDocument,
 ): unknown {
+  const table = document.kind === "csv" ? parseRenderedTable(document.text) : null;
+  if (table !== null && table.rows.length > 0) return analyzeMockTable(instruction, fields, document, table);
+
   const lines = document.text.split(/\r?\n/u);
   const entities = extractEntities(document.text);
+  const matched = fields.map(({ key }) => {
+    const match = matchLabelLine(key, lines) ?? matchEntity(key, document.text, entities);
+    return { key, value: match?.value ?? null, quote: match?.quote ?? null };
+  });
   return {
-    summary: summarize(document.text),
+    summary: summarize(document, lines, fields, matched.map((m) => m.value)),
     relevance: relevance(instruction, document.text),
-    fields: fields.map(({ key }) => {
-      const match = matchLabelLine(key, lines) ?? matchEntity(key, document.text, entities);
-      return { key, value: match?.value ?? null, quote: match?.quote ?? null };
-    }),
+    fields: matched,
     keyFacts: keyFacts(lines),
   };
 }

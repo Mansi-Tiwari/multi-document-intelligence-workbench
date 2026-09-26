@@ -169,3 +169,15 @@ describe("quote verification", () => {
     expect(findUnverifiedQuotes(r, text)).toEqual(["Due 2024-05-01", "Marked as PAID"]);
   });
 });
+
+describe("buildFindings with one document", () => {
+  it("reports only what the document lacks: no comparison, discrepancy or key document", () => {
+    const findings = buildFindings(FIELDS, [result(A, 0.9, { total_amount: "$5" })], ids());
+    expect(findings.map((f) => f.kind)).toEqual(["field_value", "missing_info", "missing_info"]);
+    expect(findings.filter((f) => f.kind === "missing_info").map((f) => f.title)).toEqual([
+      "Due date is not in 1.txt",
+      "Vendor is not in 1.txt",
+    ]);
+    for (const f of findings) FindingSchema.parse(f);
+  });
+});

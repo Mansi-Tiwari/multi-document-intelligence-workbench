@@ -60,8 +60,8 @@ describe("MockLlmProvider", () => {
 
   it("plans fields through validation", async () => {
     await expect(provider.planFields({ instruction: "Extract the total and due date" })).resolves.toEqual([
-      { key: "total", description: "The total as stated in the document." },
-      { key: "due_date", description: "The due date as stated in the document." },
+      { key: "total", description: "Total" },
+      { key: "due_date", description: "Due date" },
     ]);
   });
 
@@ -79,7 +79,7 @@ describe("MockLlmProvider", () => {
       { key: "email", value: "billing@acme.example", quote: "billing@acme.example" },
     ]);
     expect(first.summary).toBe(
-      "ACME Supplies Ltd. Invoice for office equipment.",
+      "A text file. It states payment terms Net 30, invoice date 12 March 2026, total amount USD 1250.00 and email billing@acme.example.",
     );
     expect(first.relevance).toBeGreaterThan(0);
     expect(first.relevance).toBeLessThanOrEqual(1);
@@ -100,6 +100,24 @@ describe("MockLlmProvider", () => {
   it("produces raw output that passes the shared validation", () => {
     const raw = analyzeMockDocument("Check totals", GENERIC_FIELDS, invoice);
     expect(validateDocumentAnalysis(raw, { fields: GENERIC_FIELDS, documentText: invoiceText }).ok).toBe(true);
+  });
+
+  it("writes a plain-language summary naming what it found and what is missing", async () => {
+    const document = { ...invoice, text: "DRIVING LICENCE\nName: Jane A. Doe\nValid until: 2031-06-30" };
+    const fields = [
+      { key: "name", description: "Name" },
+      { key: "monthly_income", description: "Monthly income" },
+      { key: "email", description: "Email" },
+    ];
+    const result = await provider.analyzeDocument({ instruction: "Compare name, monthly income and email", fields, document });
+    expect(result.summary).toBe(
+      "Driving licence (text file). It states name Jane A. Doe. It does not mention monthly income or email.",
+    );
+  });
+
+  it("uses the user's own words as field labels", async () => {
+    const fields = await provider.planFields({ instruction: "Compare name, date of birth and monthly income?" });
+    expect(fields.map((f) => f.description)).toEqual(["Name", "Date of birth", "Monthly income"]);
   });
 
   it("handles a document with no matches", async () => {

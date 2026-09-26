@@ -1,13 +1,15 @@
 import { useState } from "react";
+import { summarizeAnalysis } from "@mdiw/shared";
 import type { CreateAnalysisResponse, Finding } from "@mdiw/shared";
 import { CopyButton } from "../../components/CopyButton";
 import { useCopy } from "../../hooks/useCopy";
 import { ComparisonTable } from "./ComparisonTable";
-import { comparisonToMarkdown, factsToText, findingsToText, summaryToText } from "./copyText";
+import { comparisonToMarkdown, factsToText, findingsToText, overviewToText } from "./copyText";
 import type { CopyFn } from "./FindingCard";
 import { FindingCard } from "./FindingCard";
 import type { FilenameOf, ResultTabId } from "./findings";
-import { RESULT_TABS, filenameLookup, groupFindings, relevancePercent, skippedLabel, tabCounts } from "./findings";
+import { RESULT_TABS, filenameLookup, groupFindings, skippedLabel, tabCounts } from "./findings";
+import { SummaryOverview } from "./SummaryOverview";
 import { ResultTabs } from "./ResultTabs";
 
 function SkippedNotice({ skipped }: { skipped: CreateAnalysisResponse["skipped"] }) {
@@ -69,6 +71,7 @@ export function ResultsView({ result }: { result: CreateAnalysisResponse }) {
   const counts = tabCounts(analysis, grouped);
   const filenameOf = filenameLookup(analysis);
   const tabs = RESULT_TABS.map((t) => ({ ...t, count: counts[t.id] }));
+  const overview = summarizeAnalysis(analysis, skipped);
 
   let panel;
   switch (tab) {
@@ -76,30 +79,11 @@ export function ResultsView({ result }: { result: CreateAnalysisResponse }) {
       panel = (
         <>
           <TabToolbar
-            description="The key document and a summary of each document."
+            description="A plain-language answer, then what each document says."
             copyLabel="Copy summary"
-            onCopyAll={() => copy(summaryToText(analysis, grouped.keyDocument, filenameOf), "summary")}
+            onCopyAll={() => copy(overviewToText(analysis.instruction, overview), "summary")}
           />
-          {grouped.keyDocument !== null && (
-            <FindingCard finding={grouped.keyDocument} filenameOf={filenameOf} onCopy={copy} highlight />
-          )}
-          <ul className="doc-summaries">
-            {analysis.documents.map((doc) => {
-              const percent = relevancePercent(doc.relevance);
-              return (
-                <li key={doc.documentId} className="doc-summary">
-                  <div className="doc-summary__head">
-                    <h4 className="doc-summary__name">{doc.filename}</h4>
-                    <span className="doc-summary__relevance">Relevance {percent}%</span>
-                  </div>
-                  <div className="relevance-bar" aria-hidden="true">
-                    <span className="relevance-bar__fill" style={{ width: `${percent}%` }} />
-                  </div>
-                  <p className="doc-summary__text">{doc.summary}</p>
-                </li>
-              );
-            })}
-          </ul>
+          <SummaryOverview overview={overview} />
         </>
       );
       break;

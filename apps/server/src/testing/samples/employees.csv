@@ -1,0 +1,9 @@
+employee_id,name,email,department,city,join_date,annual_salary_inr,performance_rating
+EMP1001,Ananya Sharma,ananya.sharma1@example.com,Engineering,Bengaluru,2019-07-15,1850000,4
+EMP1002,Rahul Verma,rahul.verma@example.com,Sales,Mumbai,2021-02-01,960000,3
+EMP1003,Riya Kapoor,riya.kapoor@example.com,Engineering,Pune,2020-11-23,1420000,5
+EMP1004,Arjun Mehta,arjun.mehta@example.com,Finance,Delhi,2018-04-09,1600000,4
+EMP1005,Sneha Iyer,sneha.iyer@example.com,Engineering,Bengaluru,2022-06-13,1200000,3
+EMP1006,Vikram Singh,vikram.singh@example.com,Sales,Delhi,2017-09-30,1350000,4
+EMP1007,Priya Nair,priya.nair@example.com,HR,Chennai,2023-01-16,780000,3
+EMP1008,Karan Joshi,karan.joshi@example.com,Engineering,Pune,2021-08-02,1550000,4

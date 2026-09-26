@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { must } from "../../test/must";
 import { analysisFixture } from "./__fixtures__/analysis";
-import { comparisonToMarkdown, factsToText, findingToText, summaryToText } from "./copyText";
+import { summarizeAnalysis } from "@mdiw/shared";
+import { comparisonToMarkdown, factsToText, findingToText, overviewToText } from "./copyText";
 import { filenameLookup, groupFindings } from "./findings";
 
 const filenameOf = filenameLookup(analysisFixture);
@@ -35,11 +36,12 @@ describe("tab copy text", () => {
     expect(text).toContain("## notes.md\n\nBudget was discussed [AI]");
   });
 
-  it("summarizes the instruction, key document and each document", () => {
-    const text = summaryToText(analysisFixture, grouped.keyDocument, filenameOf);
-    expect(text.startsWith("Instruction: Compare total amount and due date")).toBe(true);
-    expect(text).toContain("Key document: invoice-a.pdf [AI]");
-    expect(text).toContain("invoice-b.txt (relevance 60%)\nInvoice B | revised.");
+  it("copies the summary in the same order as the tab: answer first, then documents", () => {
+    const text = overviewToText(analysisFixture.instruction, summarizeAnalysis(analysisFixture));
+    expect(text.startsWith("Instruction: Compare total amount and due date\n\nAt a glance: Compared 3 documents")).toBe(true);
+    expect(text).toContain("Key document [AI]: invoice-a.pdf");
+    expect(text).toContain("invoice-b.txt (medium relevance,");
+    expect(text).toContain("Invoice B | revised.");
   });
 
   it("renders the comparison as a Markdown table with escaped cells", () => {

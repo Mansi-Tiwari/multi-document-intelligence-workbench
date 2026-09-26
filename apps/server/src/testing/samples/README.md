@@ -16,3 +16,12 @@ Other planted problems:
 - **corrupt.pdf**: a real PDF header followed by garbage; the upload must return `unreadable`.
 
 `licence.pdf` and `corrupt.pdf` were generated with `buildPdf` (`adapters/extractors/testing/buildPdf.ts`).
+
+## employees.csv: one subject compared with the rest
+
+An 8-row employee table with no date-of-birth or licence columns. Instruction used in
+`src/e2e/tableSubject.test.ts`: *"Compare name, email, date of birth, licence number and
+monthly income of riya with other employee"*. Expected: values come from Riya Kapoor's row
+(not row 1), monthly income is derived from `annual_salary_inr` ÷ 12, her salary and rating
+are compared with the other 7 rows, and date of birth / licence number are reported as not
+in the document. There is no "key document" or comparison with a single file.

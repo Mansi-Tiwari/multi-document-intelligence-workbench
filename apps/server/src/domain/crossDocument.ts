@@ -130,6 +130,26 @@ export function buildFindings(
     }
   }
 
+  // A single document has nothing to compare against: only report what it lacks.
+  if (results.length === 1) {
+    const [only] = results;
+    if (only === undefined) return findings;
+    for (const field of fields) {
+      const found = only.fields.find((f) => f.key === field.key);
+      if (found !== undefined && found.value !== null) continue;
+      findings.push({
+        id: newId(),
+        scope: "cross_document",
+        kind: "missing_info",
+        fieldKey: field.key,
+        title: `${labelFor(fields, field.key)} is not in ${only.filename}`,
+        detail: null,
+        sources: [{ documentId: only.documentId, value: null, quote: null }],
+      });
+    }
+    return findings;
+  }
+
   for (const field of fields) {
     const sources: FindingSource[] = results.map((result) => {
       const found = result.fields.find((f) => f.key === field.key);
