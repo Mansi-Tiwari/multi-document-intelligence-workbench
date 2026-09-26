@@ -7,9 +7,10 @@ describe("loadEnv", () => {
       NODE_ENV: "development",
       PORT: 3001,
       DATABASE_PATH: "./data/workbench.sqlite",
-      LLM_PROVIDER: "mock",
+      LLM_PROVIDER: "auto",
       LLM_MODEL: "claude-opus-5",
       ANALYSIS_CONCURRENCY: 3,
+      EXTRACTION_TIMEOUT_MS: 15_000,
       CORS_ORIGINS: ["http://localhost:5173"],
       RATE_LIMIT_WINDOW_MS: 60_000,
       RATE_LIMIT_MAX: 120,
@@ -20,6 +21,10 @@ describe("loadEnv", () => {
     const env = loadEnv({ PORT: "4000", ANALYSIS_CONCURRENCY: "7" });
     expect(env.PORT).toBe(4000);
     expect(env.ANALYSIS_CONCURRENCY).toBe(7);
+  });
+
+  it.each(["999", "120001", "fast"])("rejects invalid EXTRACTION_TIMEOUT_MS %s", (value) => {
+    expect(() => loadEnv({ EXTRACTION_TIMEOUT_MS: value })).toThrow(EnvValidationError);
   });
 
   it.each(["abc", "70000", "0", "3.5"])("rejects invalid PORT %s", (port) => {
@@ -79,5 +84,20 @@ describe("loadEnv", () => {
 
   it.each(["0", "100001", "2.5", "x"])("rejects invalid RATE_LIMIT_MAX %s", (value) => {
     expect(() => loadEnv({ RATE_LIMIT_MAX: value })).toThrow(/RATE_LIMIT_MAX/);
+  });
+
+  it.each(["auto", "mock", "anthropic"])("accepts LLM_PROVIDER=%s when a key is set", (provider) => {
+    expect(loadEnv({ LLM_PROVIDER: provider, ANTHROPIC_API_KEY: "sk-test" }).LLM_PROVIDER).toBe(provider);
+  });
+
+  it.each(["auto", "mock"])("allows LLM_PROVIDER=%s without a key", (provider) => {
+    expect(loadEnv({ LLM_PROVIDER: provider }).LLM_PROVIDER).toBe(provider);
+  });
+
+  it("rejects LLM_PROVIDER=anthropic without ANTHROPIC_API_KEY with a clear message", () => {
+    expect(() => loadEnv({ LLM_PROVIDER: "anthropic" })).toThrow(EnvValidationError);
+    expect(() => loadEnv({ LLM_PROVIDER: "anthropic", ANTHROPIC_API_KEY: "  " })).toThrow(
+      /ANTHROPIC_API_KEY is required when LLM_PROVIDER=anthropic/,
+    );
   });
 });

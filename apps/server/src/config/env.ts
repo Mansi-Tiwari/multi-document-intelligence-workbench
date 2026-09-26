@@ -18,18 +18,32 @@ export const CorsOriginsSchema = z
   )
   .pipe(z.array(OriginSchema).min(1));
 
-export const EnvSchema = z.object({
-  NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
-  PORT: z.coerce.number().int().min(1).max(65535).default(3001),
-  DATABASE_PATH: z.string().min(1).default("./data/workbench.sqlite"),
-  LLM_PROVIDER: z.enum(["mock", "anthropic"]).default("mock"),
-  LLM_MODEL: z.string().min(1).default("claude-opus-5"),
-  ANTHROPIC_API_KEY: z.string().min(1).optional(),
-  ANALYSIS_CONCURRENCY: z.coerce.number().int().min(1).max(10).default(3),
-  CORS_ORIGINS: CorsOriginsSchema.prefault("http://localhost:5173"),
-  RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).max(3_600_000).default(60_000),
-  RATE_LIMIT_MAX: z.coerce.number().int().min(1).max(100_000).default(120),
-});
+/** `auto`: anthropic when ANTHROPIC_API_KEY is set, otherwise the offline mock. */
+export const LlmProviderSettingSchema = z.enum(["auto", "mock", "anthropic"]);
+
+export const EnvSchema = z
+  .object({
+    NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+    PORT: z.coerce.number().int().min(1).max(65535).default(3001),
+    DATABASE_PATH: z.string().min(1).default("./data/workbench.sqlite"),
+    LLM_PROVIDER: LlmProviderSettingSchema.default("auto"),
+    LLM_MODEL: z.string().min(1).default("claude-opus-5"),
+    ANTHROPIC_API_KEY: z.string().min(1).optional(),
+    ANALYSIS_CONCURRENCY: z.coerce.number().int().min(1).max(10).default(3),
+    EXTRACTION_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120000).default(15000),
+    CORS_ORIGINS: CorsOriginsSchema.prefault("http://localhost:5173"),
+    RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).max(3_600_000).default(60_000),
+    RATE_LIMIT_MAX: z.coerce.number().int().min(1).max(100_000).default(120),
+  })
+  .superRefine((env, ctx) => {
+    if (env.LLM_PROVIDER === "anthropic" && env.ANTHROPIC_API_KEY === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["ANTHROPIC_API_KEY"],
+        message: "ANTHROPIC_API_KEY is required when LLM_PROVIDER=anthropic (use LLM_PROVIDER=auto or mock to run without a key)",
+      });
+    }
+  });
 
 export type Env = z.infer<typeof EnvSchema>;
 

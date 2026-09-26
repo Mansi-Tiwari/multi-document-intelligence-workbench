@@ -113,12 +113,12 @@ The key document is the one with the highest relevance. Ties go to the one with 
 
 ## LLM providers
 
-`LLM_PROVIDER=mock | anthropic` (default `mock`).
+The port is `ports/LlmProvider.ts`, with `planFields({ instruction })` and `analyzeDocument({ instruction, fields, document })`, where `document` is exactly **one** document. `LLM_PROVIDER=auto | mock | anthropic` (default `auto`): `auto` uses Anthropic when `ANTHROPIC_API_KEY` is set and the mock otherwise. `anthropic` without a key fails env validation at startup.
 
-- **mock** (`adapters/llm/mockDocumentAnalyzer.ts`): deterministic, offline, no key needed. It plans fields from the instruction's comma- or "and"-separated phrases, falling back to generic fields. It extracts values from `Label: value` lines, dates and amounts in **one** document's text. Tests and local development use it.
-- **anthropic** (`adapters/llm/anthropicDocumentAnalyzer.ts`): `@anthropic-ai/sdk` structured outputs (`messages.parse` + `zodOutputFormat`), model from `LLM_MODEL` (default `claude-opus-5`). It handles `refusal` and `max_tokens` stop reasons, and output is re-validated with the shared schema.
-
-Both implement the same `DocumentAnalyzer` port. Services never know which one is in use.
+- **mock** (`adapters/llm/MockLlmProvider.ts`): deterministic, offline, no key needed. It plans fields from the instruction's phrases, falling back to generic fields. It extracts values from `Label: value` lines and regex entities in **one** document's text. Tests and local development use it.
+- **anthropic** (`adapters/llm/AnthropicLlmProvider.ts`): `@anthropic-ai/sdk` `messages.create` with structured outputs (`output_config.format` built from a simple Zod schema). The model comes from `LLM_MODEL` (default `claude-opus-5`). The client is injected so tests can use a fake.
+- **Every reply is validated with Zod and retried once** (`adapters/llm/withValidationRetry.ts`). The mock's output goes through the same path as Claude's. On invalid output (schema, wrong field keys, non-JSON, `max_tokens`, or **a quote that isn't in the document**) the call is retried once, with the issues fed back. A second failure throws `LlmError`. `refusal` and API errors are not retried, since the SDK already retries 429/5xx.
+- Prompts treat the document as untrusted data. It sits inside one `<document …>` tag, and the model is told never to follow instructions inside it.
 
 ## API
 

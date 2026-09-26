@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { createLlmProvider } from "./adapters/llm/createLlmProvider";
 import { createApp } from "./app";
 import { EnvValidationError, loadEnv } from "./config/env";
 import type { Env } from "./config/env";
@@ -23,6 +24,10 @@ function readEnv(): Env {
 }
 
 const env = readEnv();
+// Not wired into the app yet; the analysis service will receive it.
+const llm = createLlmProvider(env);
+console.log(`LLM provider: ${llm.provider.name} (${llm.reason})${llm.provider.name === "anthropic" ? `, model ${llm.provider.model}` : ""}`);
+
 const app = createApp({
   cors: { origins: env.CORS_ORIGINS },
   rateLimit: { windowMs: env.RATE_LIMIT_WINDOW_MS, max: env.RATE_LIMIT_MAX },
@@ -33,7 +38,7 @@ const server = app.listen(env.PORT, (error?: Error) => {
     console.error(`Failed to start server on port ${env.PORT}:`, error.message);
     process.exit(1);
   }
-  console.log(`Server listening on http://localhost:${env.PORT} (LLM provider: ${env.LLM_PROVIDER})`);
+  console.log(`Server listening on http://localhost:${env.PORT}`);
 });
 
 function shutdown(signal: NodeJS.Signals): void {
