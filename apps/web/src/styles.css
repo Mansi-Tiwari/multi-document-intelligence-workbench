@@ -739,6 +739,10 @@ code {
 }
 
 .tabs__list {
+  /* Scroll containers must be the containing block of their absolutely positioned
+     descendants (e.g. .visually-hidden tab counts). Otherwise those escape the
+     overflow clip and widen the page when a tab is scrolled off-screen. */
+  position: relative;
   display: flex;
   gap: 0.25rem;
   overflow-x: auto;
@@ -950,6 +954,7 @@ code {
 
 /* Comparison table scrolls inside its own box so the page never scrolls sideways. */
 .table-scroll {
+  position: relative; /* clip absolutely positioned descendants; see .tabs__list */
   max-width: 100%;
   overflow-x: auto;
   border: 1px solid var(--border);
@@ -1075,13 +1080,16 @@ code {
   font-size: 1.0625rem;
   line-height: 1.55;
 }
+/* Inline flow (not flex) so heading text wraps beside its badge instead of the
+   whole phrase dropping below it on narrow screens. */
 .overview__heading {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
   margin: 0 0 0.5rem;
   font-size: 0.9375rem;
+  line-height: 1.6;
+}
+.overview__heading > .badge {
+  margin-right: 0.25rem;
+  vertical-align: 0.0625rem;
 }
 .overview__section {
   border: 1px solid var(--border);

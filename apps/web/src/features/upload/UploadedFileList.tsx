@@ -77,6 +77,9 @@ export function UploadedFileList({
           const inputId = `uploaded-${key}`;
           const isOk = result.status === "ok";
           const checked = isOk && selectedIds.includes(result.document.id);
+          const checkboxName = isOk
+            ? `Select ${result.filename} for analysis`
+            : `${result.filename} cannot be analysed: ${result.reason}`;
           return (
             <li key={key} className={`file-row file-row--selectable${isOk ? "" : " file-row--disabled"}`}>
               <input
@@ -85,6 +88,7 @@ export function UploadedFileList({
                 className="file-row__check"
                 checked={checked}
                 disabled={!isOk}
+                aria-label={checkboxName}
                 onChange={() => {
                   if (result.status === "ok") onToggle(result.document.id);
                 }}
