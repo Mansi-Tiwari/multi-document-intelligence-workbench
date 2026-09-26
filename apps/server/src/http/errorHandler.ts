@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
+import multer from "multer";
 import { z } from "zod";
 import { ApiErrorSchema } from "@mdiw/shared";
 import type { ApiError, ApiErrorIssue, ErrorCode } from "@mdiw/shared";
@@ -35,6 +36,10 @@ function toHttpError(err: unknown): HttpError | undefined {
     };
   }
 
+  if (err instanceof multer.MulterError) {
+    return multerToHttpError(err);
+  }
+
   const bodyParserError = BodyParserErrorSchema.safeParse(err);
   if (bodyParserError.success) {
     switch (bodyParserError.data.type) {
@@ -46,6 +51,29 @@ function toHttpError(err: unknown): HttpError | undefined {
   }
 
   return undefined;
+}
+
+/** Request-level upload failures (per-file problems get their own status instead). */
+function multerToHttpError(err: multer.MulterError): HttpError {
+  switch (err.code) {
+    case "LIMIT_FILE_SIZE":
+      return { status: 413, code: "FILE_TOO_LARGE", message: "A file exceeds the maximum upload size." };
+    case "LIMIT_FILE_COUNT":
+    case "LIMIT_PART_COUNT":
+      return { status: 400, code: "VALIDATION_ERROR", message: "Too many files in one upload." };
+    case "LIMIT_UNEXPECTED_FILE":
+      return {
+        status: 400,
+        code: "VALIDATION_ERROR",
+        message: `Unexpected file field '${err.field ?? ""}' or too many files; use the 'files' field.`,
+      };
+    case "LIMIT_FIELD_COUNT":
+    case "LIMIT_FIELD_KEY":
+    case "LIMIT_FIELD_VALUE":
+      return { status: 400, code: "VALIDATION_ERROR", message: "Only file fields are accepted in an upload." };
+    default:
+      return { status: 400, code: "VALIDATION_ERROR", message: "The upload was rejected." };
+  }
 }
 
 /** Forwards unmatched routes to the error handler as a NotFoundError. */

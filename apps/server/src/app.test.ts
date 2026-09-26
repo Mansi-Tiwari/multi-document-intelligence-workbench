@@ -1,13 +1,13 @@
 import request from "supertest";
 import { describe, expect, it } from "vitest";
 import { ApiErrorSchema, HealthResponseSchema } from "@mdiw/shared";
-import { createApp } from "./app";
 import type { AppOptions } from "./app";
+import { TEST_ORIGIN, buildTestApp } from "./testing/testApp";
 
-const ALLOWED_ORIGIN = "http://localhost:5173";
+const ALLOWED_ORIGIN = TEST_ORIGIN;
 
-function testApp(overrides: Partial<AppOptions> = {}) {
-  return createApp({ cors: { origins: [ALLOWED_ORIGIN] }, rateLimit: false, ...overrides });
+function testApp(overrides: Partial<Omit<AppOptions, "services">> = {}) {
+  return buildTestApp(overrides).app;
 }
 
 describe("createApp", () => {
