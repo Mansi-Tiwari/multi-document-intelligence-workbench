@@ -97,11 +97,11 @@ Anything crossing a trust boundary is `unknown` until a Zod schema accepts it:
 
 `POST /api/analyses` runs everything within the request, with no queue:
 
-1. Load the requested documents. If any id is unknown, return **404**.
+1. Load the requested documents. Unknown IDs are **skipped** (`not_found`), and the request fails with 422 only if nothing remains.
 2. `planFields(instruction)` → 1–12 fields `{ key, description }`, with keys in `snake_case`.
-3. For each document, **separately**, with bounded concurrency (`ANALYSIS_CONCURRENCY`): `analyzeDocument({ instruction, fields, document })`.
+3. For each document, **separately**, with bounded concurrency (`ANALYSIS_CONCURRENCY`): `analyzeDocument({ instruction, fields, document })`, with the document inside its own `<document id="…">` tag. The service then checks that **every quote exists in that document's text** (`locateQuote`). A document whose call fails (after the one retry) or has unverifiable quotes is skipped as `analysis_failed`.
 4. `compareDocuments(fields, perDocument)` (domain) → comparison, discrepancies, missing info, key document.
-5. Save in one transaction and return **201** with the full `Analysis`.
+5. Save in one transaction and return **201** `{ analysis, skipped }`. `findingBasis()` in shared labels each finding `fact` (every value backed by a verified quote) or `ai` (model judgement).
 
 Value comparison normalizes values first: trim, lowercase and collapse whitespace. A field is:
 - `consistent`: every document has it, with the same value
@@ -125,15 +125,15 @@ The port is `ports/LlmProvider.ts`, with `planFields({ instruction })` and `anal
 | Method | Path | Body / params | Response |
 |---|---|---|---|
 | GET | `/api/health` | — | `{ status: "ok" }` |
-| POST | `/api/documents` | multipart `files[]` | 201 `{ documents: DocumentSummary[] }` |
+| POST | `/api/documents` | multipart `files` (repeatable) | 201/200 `UploadDocumentsResponse`: one result per file (`ok`, `empty`, `unreadable`, `unsupported`, `too_large`, plus a reason) |
 | GET | `/api/documents` | — | `{ documents: DocumentSummary[] }` |
 | GET | `/api/documents/:id` | `id` uuid | `DocumentDetail` (includes text preview) |
 | DELETE | `/api/documents/:id` | `id` uuid | 204 |
-| POST | `/api/analyses` | `{ instruction, documentIds }` | 201 `Analysis` |
+| POST | `/api/analyses` | `CreateAnalysisRequest` `{ instruction, documentIds }` | 201 `{ analysis, skipped[] }`. Unknown IDs and documents whose AI call fails twice are skipped with a reason; 422 `NOTHING_TO_ANALYZE` if all are skipped |
 | GET | `/api/analyses` | — | `{ analyses: AnalysisSummary[] }` |
 | GET | `/api/analyses/:id` | `id` uuid | `Analysis` |
 
-Errors always have the shape `{ error: { code, message, issues?, requestId? } }` (see `ApiErrorSchema`). They are raised as `AppError` subclasses (`domain/errors.ts`), and each code's HTTP status comes from a single `ERROR_STATUS` table. Codes: `VALIDATION_ERROR` 400, `NOT_FOUND` 404, `FILE_TOO_LARGE` 413, `UNSUPPORTED_FILE` 415, `EXTRACTION_FAILED` 422, `RATE_LIMITED` 429, `INTERNAL_ERROR` 500, `LLM_ERROR` 502. `http/errorHandler.ts` is the **only** place errors become responses. Stack traces are never sent to clients. `AppError` messages are sent as written, so put internal details in `cause`, which is only logged.
+Errors always have the shape `{ error: { code, message, issues?, requestId? } }` (see `ApiErrorSchema`). They are raised as `AppError` subclasses (`domain/errors.ts`), and each code's HTTP status comes from a single `ERROR_STATUS` table. Codes: `VALIDATION_ERROR` 400, `NOT_FOUND` 404, `NOTHING_TO_ANALYZE` 422, `FILE_TOO_LARGE` 413, `UNSUPPORTED_FILE` 415, `EXTRACTION_FAILED` 422, `RATE_LIMITED` 429, `INTERNAL_ERROR` 500, `LLM_ERROR` 502. `http/errorHandler.ts` is the **only** place errors become responses. Stack traces are never sent to clients. `AppError` messages are sent as written, so put internal details in `cause`, which is only logged.
 
 ### Middleware (in order)
 `requestId` → `helmet` → `cors` → rate limit (`/api`, health excluded) → `express.json({ limit: "100kb" })` → routes → 404 → error handler.

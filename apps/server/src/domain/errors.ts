@@ -5,6 +5,7 @@ import type { ApiErrorIssue, ErrorCode } from "@mdiw/shared";
 export const ERROR_STATUS: Readonly<Record<ErrorCode, number>> = {
   VALIDATION_ERROR: 400,
   NOT_FOUND: 404,
+  NOTHING_TO_ANALYZE: 422,
   FILE_TOO_LARGE: 413,
   UNSUPPORTED_FILE: 415,
   EXTRACTION_FAILED: 422,
@@ -77,6 +78,14 @@ export class LlmError extends AppError {
   override readonly name = "LlmError";
   constructor(message: string, cause?: unknown) {
     super("LLM_ERROR", message, { cause });
+  }
+}
+
+/** Every requested document was skipped; `issues` say why for each one. */
+export class NothingToAnalyzeError extends AppError {
+  override readonly name = "NothingToAnalyzeError";
+  constructor(message: string, issues: ApiErrorIssue[]) {
+    super("NOTHING_TO_ANALYZE", message, { issues });
   }
 }
 

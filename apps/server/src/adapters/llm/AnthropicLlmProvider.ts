@@ -114,7 +114,7 @@ export function buildAnalyzeDocumentPrompt(
 ): string {
   const fieldList = fields.map((field) => `- ${field.key}: ${field.description}`).join("\n");
   return [
-    `<document filename="${escapeAttribute(document.filename)}" kind="${document.kind}">`,
+    `<document id="${escapeAttribute(document.id)}" filename="${escapeAttribute(document.filename)}" kind="${document.kind}">`,
     neutralizeDocumentText(document.text),
     "</document>",
     "",

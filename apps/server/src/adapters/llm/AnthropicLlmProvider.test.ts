@@ -86,7 +86,7 @@ describe("AnthropicLlmProvider.analyzeDocument", () => {
 
     const all = requestText(params);
     expect(all.match(/<document/g)).toHaveLength(1);
-    expect(all).toContain('<document filename="invoice &quot;A&quot;.txt" kind="text">');
+    expect(all).toMatch(/<document id="[^"]+" filename="invoice &quot;A&quot;\.txt" kind="text">/);
     expect(all).toContain("INVOICE-SECRET-TEXT");
   });
 

@@ -5,8 +5,10 @@ import { errorHandler, notFoundHandler } from "./http/errorHandler";
 import { requestIdMiddleware } from "./http/requestId";
 import { corsMiddleware, rateLimitMiddleware } from "./http/security";
 import type { CorsOptions, RateLimitOptions } from "./http/security";
+import { analysesRouter } from "./routes/analyses.routes";
 import { documentsRouter } from "./routes/documents.routes";
 import { healthRouter } from "./routes/health.routes";
+import type { AnalysisService } from "./services/AnalysisService";
 import type { DocumentService } from "./services/DocumentService";
 import type { UploadLimits } from "@mdiw/shared";
 
@@ -14,7 +16,7 @@ export type AppOptions = {
   cors: CorsOptions;
   /** `false` disables rate limiting (e.g. in tests). */
   rateLimit: Omit<RateLimitOptions, "skipPaths"> | false;
-  services: { documents: DocumentService };
+  services: { documents: DocumentService; analyses: AnalysisService };
   /** Overrides the shared upload limits (tests use small ones). */
   uploadLimits?: UploadLimits;
 };
@@ -35,6 +37,7 @@ export function createApp(options: AppOptions): Express {
 
   app.use("/api/health", healthRouter());
   app.use("/api/documents", documentsRouter(options.services.documents, options.uploadLimits));
+  app.use("/api/analyses", analysesRouter(options.services.analyses));
 
   app.use(notFoundHandler);
   app.use(errorHandler);

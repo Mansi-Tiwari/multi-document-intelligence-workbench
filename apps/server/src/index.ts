@@ -5,8 +5,10 @@ import { fileURLToPath } from "node:url";
 import { createDefaultExtractionService } from "./adapters/extractors";
 import { createLlmProvider } from "./adapters/llm/createLlmProvider";
 import { openDatabase } from "./adapters/sqlite/database";
+import { SqliteAnalysisRepository } from "./adapters/sqlite/SqliteAnalysisRepository";
 import { SqliteDocumentRepository } from "./adapters/sqlite/SqliteDocumentRepository";
 import { createApp } from "./app";
+import { AnalysisService } from "./services/AnalysisService";
 import { DocumentService } from "./services/DocumentService";
 import { EnvValidationError, loadEnv } from "./config/env";
 import type { Env } from "./config/env";
@@ -30,7 +32,6 @@ function readEnv(): Env {
 }
 
 const env = readEnv();
-// Not wired into the app yet; the analysis service will receive it.
 const llm = createLlmProvider(env);
 console.log(`LLM provider: ${llm.provider.name} (${llm.reason})${llm.provider.name === "anthropic" ? `, model ${llm.provider.model}` : ""}`);
 
@@ -40,17 +41,27 @@ const databasePath = resolve(serverRoot, env.DATABASE_PATH);
 const db = openDatabase(databasePath);
 console.log(`SQLite database: ${databasePath}`);
 
+const documentRepository = new SqliteDocumentRepository(db);
 const documentService = new DocumentService({
-  repository: new SqliteDocumentRepository(db),
+  repository: documentRepository,
   extractor: createDefaultExtractionService({ timeoutMs: env.EXTRACTION_TIMEOUT_MS }),
   newId: randomUUID,
   now: () => new Date(),
 });
 
+const analysisService = new AnalysisService({
+  documents: documentRepository,
+  analyses: new SqliteAnalysisRepository(db),
+  llm: llm.provider,
+  newId: randomUUID,
+  now: () => new Date(),
+  concurrency: env.ANALYSIS_CONCURRENCY,
+});
+
 const app = createApp({
   cors: { origins: env.CORS_ORIGINS },
   rateLimit: { windowMs: env.RATE_LIMIT_WINDOW_MS, max: env.RATE_LIMIT_MAX },
-  services: { documents: documentService },
+  services: { documents: documentService, analyses: analysisService },
 });
 
 const server = app.listen(env.PORT, (error?: Error) => {

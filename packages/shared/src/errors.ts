@@ -6,6 +6,7 @@ export const ErrorCodeSchema = z.enum([
   "FILE_TOO_LARGE",
   "EXTRACTION_FAILED",
   "NOT_FOUND",
+  "NOTHING_TO_ANALYZE",
   "RATE_LIMITED",
   "LLM_ERROR",
   "INTERNAL_ERROR",

@@ -95,6 +95,12 @@ const ENTITY_HINTS: readonly { pattern: RegExp; type: EntityType }[] = [
   { pattern: /amount|total|price|cost|fee|sum|balance|payment/u, type: "money" },
 ];
 
+/** Key words that only name the entity type, not which one ("date", "amount"). */
+const GENERIC_KEY_WORDS: ReadonlySet<string> = new Set([
+  "email", "mail", "licence", "license", "number", "date", "dated",
+  "amount", "total", "price", "cost", "fee", "sum", "value",
+]);
+
 function lineOf(text: string, entity: ExtractedEntity): string {
   const start = text.lastIndexOf("\n", entity.start - 1) + 1;
   const end = text.indexOf("\n", entity.end);
@@ -105,12 +111,19 @@ function matchEntity(key: string, text: string, entities: readonly ExtractedEnti
   const hint = ENTITY_HINTS.find(({ pattern }) => pattern.test(key));
   if (hint === undefined) return null;
   const ofType = entities.filter((entity) => entity.type === hint.type);
-  // Prefer an entity on a line that mentions the field's words ("Total: $5" for total_amount).
-  const words = key
-    .split("_")
-    .filter((word) => word.length > 2)
-    .map((word) => new RegExp(`\\b${word}\\b`, "u"));
-  const preferred = ofType.find((entity) => words.some((word) => word.test(lineOf(text, entity))));
+  const toPatterns = (words: readonly string[]) => words.map((word) => new RegExp(`\\b${word}\\b`, "u"));
+  const words = key.split("_").filter((word) => word.length > 2);
+  // Words that pin down WHICH date/amount is meant ("birth" in date_birth). When a key
+  // has any, an entity only counts on a line that mentions one: a statement's first
+  // transaction date is not a date of birth.
+  const specific = toPatterns(words.filter((word) => !GENERIC_KEY_WORDS.has(word)));
+  if (specific.length > 0) {
+    const entity = ofType.find((e) => specific.some((word) => word.test(lineOf(text, e))));
+    return entity === undefined ? null : { value: entity.normalized ?? entity.text, quote: entity.text };
+  }
+  // Otherwise prefer an entity on a line that mentions the field's words ("Total: $5" for total_amount).
+  const all = toPatterns(words);
+  const preferred = ofType.find((entity) => all.some((word) => word.test(lineOf(text, entity))));
   const entity = preferred ?? ofType[0];
   if (entity === undefined) return null;
   return { value: entity.normalized ?? entity.text, quote: entity.text };
