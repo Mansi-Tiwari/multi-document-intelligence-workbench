@@ -1,0 +1,12 @@
+RENTAL APPLICATION FORM
+Reference: APP-2024-0457
+
+Name: Jane Doe
+Email: jane.doe@example.com
+Date of Birth: 1990-04-12
+Licence Number: D1234-5678-90
+Monthly Income: $4,200.00
+Current Address: 18 Elm Street, Bristol BS1 4DJ
+
+I confirm the information above is true and complete.
+Signed: Jane Doe, 2024-04-02

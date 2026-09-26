@@ -1,1 +1,1 @@
-export { noTextPdf, textPdf } from "../adapters/extractors/testing/buildPdf";
+export { buildPdf, noTextPdf, textPdf } from "../adapters/extractors/testing/buildPdf";
