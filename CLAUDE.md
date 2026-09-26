@@ -154,6 +154,8 @@ Errors always have the shape `{ error: { code, message, issues?, requestId? } }`
 
 Lives in `apps/server/src/adapters/sqlite/schema.ts` as ordered migrations tracked in `schema_migrations`. Runs with `PRAGMA foreign_keys = ON` and `journal_mode = WAL`. Timestamps are ISO-8601 UTC `TEXT`.
 
+Results are stored as **findings**. Each finding has one or more **sources**: the document it came from, a supporting quote, and the value in that document. A finding with `scope = 'document'` has exactly one source. A `cross_document` finding has one source per document involved. The repository enforces these source counts, since SQLite can't.
+
 ```sql
 CREATE TABLE schema_migrations (
   version     INTEGER PRIMARY KEY,
@@ -164,7 +166,7 @@ CREATE TABLE documents (
   id          TEXT PRIMARY KEY,                                   -- uuid
   filename    TEXT NOT NULL CHECK (length(filename) BETWEEN 1 AND 255),
   kind        TEXT NOT NULL CHECK (kind IN ('pdf', 'text', 'csv')),
-  mime_type   TEXT NOT NULL,
+  mime_type   TEXT NOT NULL,                                      -- detected from bytes, not the client header
   size_bytes  INTEGER NOT NULL CHECK (size_bytes > 0),
   sha256      TEXT NOT NULL CHECK (length(sha256) = 64),
   page_count  INTEGER CHECK (page_count IS NULL OR page_count > 0), -- pdf only
@@ -173,6 +175,7 @@ CREATE TABLE documents (
   created_at  TEXT NOT NULL
 );
 CREATE INDEX idx_documents_created_at ON documents (created_at DESC);
+CREATE INDEX idx_documents_sha256 ON documents (sha256);
 
 CREATE TABLE analyses (
   id           TEXT PRIMARY KEY,                                  -- uuid
@@ -193,9 +196,10 @@ CREATE TABLE analysis_fields (
   UNIQUE (analysis_id, position)
 );
 
--- One row per document per analysis: the result of that document's own LLM call.
--- No FK to documents: results are a snapshot and survive document deletion.
-CREATE TABLE document_results (
+-- Documents included in an analysis, with that document's own summary and relevance
+-- (the output of its separate LLM call). No FK to documents: an analysis is a
+-- snapshot and survives document deletion.
+CREATE TABLE analysis_documents (
   analysis_id  TEXT NOT NULL REFERENCES analyses (id) ON DELETE CASCADE,
   document_id  TEXT NOT NULL,
   position     INTEGER NOT NULL CHECK (position >= 0),
@@ -206,32 +210,41 @@ CREATE TABLE document_results (
   UNIQUE (analysis_id, position)
 );
 
-CREATE TABLE extracted_fields (
-  analysis_id  TEXT NOT NULL,
-  document_id  TEXT NOT NULL,
-  field_key    TEXT NOT NULL,
-  value        TEXT,                -- NULL = not found in this document
-  evidence     TEXT,                -- supporting quote from this document
-  PRIMARY KEY (analysis_id, document_id, field_key),
-  FOREIGN KEY (analysis_id, document_id)
-    REFERENCES document_results (analysis_id, document_id) ON DELETE CASCADE,
-  FOREIGN KEY (analysis_id, field_key)
-    REFERENCES analysis_fields (analysis_id, key) ON DELETE CASCADE
+CREATE TABLE findings (
+  id           TEXT PRIMARY KEY,                                  -- uuid
+  analysis_id  TEXT NOT NULL REFERENCES analyses (id) ON DELETE CASCADE,
+  position     INTEGER NOT NULL CHECK (position >= 0),
+  scope        TEXT NOT NULL CHECK (scope IN ('document', 'cross_document')),
+  kind         TEXT NOT NULL CHECK (kind IN (
+                 'field_value', 'key_fact',                               -- scope = document
+                 'comparison', 'discrepancy', 'missing_info', 'key_document' -- scope = cross_document
+               )),
+  field_key    TEXT,                                              -- set for field_value/comparison/discrepancy/missing_info
+  title        TEXT NOT NULL,
+  detail       TEXT,
+  UNIQUE (analysis_id, position),
+  CHECK ((scope = 'document') = (kind IN ('field_value', 'key_fact'))),
+  FOREIGN KEY (analysis_id, field_key) REFERENCES analysis_fields (analysis_id, key) ON DELETE CASCADE
 );
+CREATE INDEX idx_findings_analysis_kind ON findings (analysis_id, kind);
 
-CREATE TABLE key_facts (
+-- Where each finding comes from: one row per document involved.
+CREATE TABLE finding_sources (
+  finding_id   TEXT NOT NULL REFERENCES findings (id) ON DELETE CASCADE,
   analysis_id  TEXT NOT NULL,
   document_id  TEXT NOT NULL,
   position     INTEGER NOT NULL CHECK (position >= 0),
-  fact         TEXT NOT NULL,
-  evidence     TEXT,
-  PRIMARY KEY (analysis_id, document_id, position),
+  value        TEXT,                -- the value in this document (NULL = not found)
+  quote        TEXT,                -- supporting excerpt from this document
+  PRIMARY KEY (finding_id, document_id),
+  UNIQUE (finding_id, position),
   FOREIGN KEY (analysis_id, document_id)
-    REFERENCES document_results (analysis_id, document_id) ON DELETE CASCADE
+    REFERENCES analysis_documents (analysis_id, document_id) ON DELETE CASCADE
 );
+CREATE INDEX idx_finding_sources_document ON finding_sources (document_id);
 ```
 
-The cross-document result is **not stored**. It is derived data, recomputed by the domain's `compareDocuments` when an analysis is read, so it can never drift from the per-document rows.
+Repository interfaces (`ports/`): `DocumentRepository` and `AnalysisRepository`. SQLite implementations (`adapters/sqlite/`) parse every row with a Zod row schema. An analysis, including its fields, documents, findings and sources, is written in **one transaction**.
 
 ## Conventions
 
